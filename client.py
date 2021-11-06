@@ -10,6 +10,7 @@ from Crypto.Signature import PKCS1_v1_5
 import hmac
 import hashlib
 
+session_id = ""
 server_random = ""
 client_random = ""
 
@@ -24,6 +25,8 @@ def client_hello(s):
 
 	global server_random
 	global client_random
+	global session_id
+
 	#generate random string
 	version = "1.2"
 	
@@ -47,7 +50,8 @@ def client_hello(s):
 
 	server_random = server_hello[1]
 	server_cipher_suite = server_hello[2]
-
+	session_id = server_hello[3]
+	
 	if(server_cipher_suite!=cipher_suite):
 		print("Cipher suite not supported")
 		return
@@ -55,6 +59,8 @@ def client_hello(s):
 	s.send("yes".encode())
 
 def server_cert(s):
+
+	global session_id
 
 	#receive the server certificate
 	server_certificate = s.recv(10000).decode()
@@ -67,7 +73,9 @@ def server_cert(s):
 	gx = int(server_certificate[2])
 
 	public_key = server_certificate[3]
+
 	
+	print("Session ID: "+session_id)
 	public_key = RSA.import_key(public_key)
 
 	#recieve the signature	
@@ -77,9 +85,10 @@ def server_cert(s):
 	hash = SHA256.new((str(G) + "::" + str(N) + "::" + str(gx)).encode())
 
 	if (keyVerifier.verify(hash, signature)):
-		print("Key Verified")
+		pass
 	else:
 		print("Signature verification unsuccessful")
+		return
 	
 	y = random.randint(0, 100)
 

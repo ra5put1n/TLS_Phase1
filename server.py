@@ -9,53 +9,26 @@ from Crypto.Signature import PKCS1_v1_5
 import sympy
 import hmac
 import hashlib
+import threading
 
 client_random = ""
 server_random = ""
 
-
+session_id = 0
 
 def socket_listen(HOST="", PORT=6969):
 	#create a socket and connect to the server
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		s.bind((HOST, PORT))
 		s.listen(5) 
-		print("Listening on localhost:{}".format(PORT))
 		conn, addr = s.accept()
 		print("Connected to {}:{}".format(addr[0], addr[1]))
 		return conn
-
-
-def server_hello(conn):
-
-	global client_random
-	global server_random
-
-	version = "1.2"
-	packet = conn.recv(1024).decode()
-	lst = packet.split("::")
-
-	client_version = lst[0]
-
-	if (client_version != version):
-		print("Client version is not compatible with server version")
-		conn.close()
-		return
-	
-	client_random = lst[1]
-
-	cipher_suite = lst[2]
-
-	server_random = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
-
-	packet = version+ "::"+server_random+ "::" + cipher_suite
-
-	conn.send(packet.encode())
-	conn.recv(1024).decode()
 	
 
 def server_certificate(conn):
 
+	global session_id
 	certificate = RSA.generate(2048)
 	public_key = certificate.publickey()
 	public_key_string = public_key.exportKey(format='PEM').decode()
@@ -88,14 +61,61 @@ def server_certificate(conn):
 
 	master_secret = hmac.new(pre_master.encode(),"master_secret".encode(), hashlib.sha256)
 	
-	print("\nMaster secret: ",master_secret.hexdigest())
+	print("\nMaster secret for session "+str(session_id)+": ",master_secret.hexdigest())
 
+	conn.close()
+
+def server_hello(conn):
+
+	global client_random
+	global server_random
+	global session_id
+
+	session_id += 1
+	flag = True
+
+	version = "1.2"
+	cipher_suite = "TLS_DHE_RSA_WITH_DES_CBC_SHA"
+
+	packet = conn.recv(1024).decode()
+	lst = packet.split("::")
+
+	client_version = lst[0]
+
+	if (client_version != version):
+		print("Client version is not compatible with server version")
+		conn.close()
+		return
+	
+	client_random = lst[1]
+	cipher_suite = lst[2]
+
+	if (cipher_suite != "TLS_DHE_RSA_WITH_DES_CBC_SHA"):
+		flag = False
+		print("Cipher suite is not compatible with server version")
+
+	
+
+	server_random = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+
+	packet = version+ "::"+server_random+ "::" + cipher_suite+"::"+str(session_id)
+
+	conn.send(packet.encode())
+
+	if flag is False:
+		conn.close()
+		return
+
+	conn.recv(1024).decode()
+	server_certificate(conn)
 
 def main():
-	conn = socket_listen()
-	server_hello(conn)
-	server_certificate(conn)
-	conn.close()
+
+	while True:
+		print("Listening on localhost:{}".format(6969))
+		conn = socket_listen()
+		threading.Thread(target=server_hello, args=(conn,)).start()
+
 
 if __name__ == "__main__":
 	main()
